@@ -1,0 +1,14 @@
+# Put your `run_remote.sh` configs in this YAML file
+training:
+    learning_rate: 0.1
+    weight_decay: 0.0001 # can't use "1e-4"
+    num_epochs: 100
+    batch_size: 1024
+    log_per_step: 50
+    # checkpoint_per_epoch: 1000 # i.e. no checkpoint
+    wandb: False # use this to disable wandb
+model:
+    name: ResNet50
+dataset:
+    prefetch_factor: 2
+    num_workers: 64 # NOTE: On V2, if the code exit unexpectedly, then try to use 64 workers

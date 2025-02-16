@@ -1,0 +1,10 @@
+tmp/
+
+__pycache__
+
+.nfs*
+
+imagenet_fake/
+
+wandb/*
+config.sh
