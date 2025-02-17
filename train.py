@@ -28,7 +28,8 @@ import optax
 
 import input_pipeline
 from input_pipeline import prepare_batch_data
-import models
+import models.models_resnet as models_resnet
+from models.models_simclr import SimCLR
 
 from utils.info_util import print_params
 from utils.logging_utils import log_for_0, GoodLogger
@@ -292,12 +293,18 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
 
     base_learning_rate = training_config.learning_rate * global_batch_size / 256.0
 
-    model_cls = getattr(models, config.model.name)
-    model = create_model(
-        model_cls=model_cls,
-        half_precision=config.model.half_precision,
-        num_classes=config.dataset.num_classes,
-    )
+    # model_cls = SimCLR
+    # model = create_model(
+    #     model_cls=model_cls,
+    #     half_precision=config.model.half_precision,
+    #     num_classes=config.dataset.num_classes,
+    # )
+    net_type = config.model.name
+    # get corresponding hidden_dim
+    if net_type == "ResNet50": hidden_dim = 2048
+    elif net_type == "_ResNet1": hidden_dim = 64
+    else: raise NotImplementedError(f"model {net_type} not implemented")
+    model = SimCLR(net_type=net_type, hidden_dim=hidden_dim)
 
     learning_rate_fn = create_learning_rate_fn(
         training_config, base_learning_rate, steps_per_epoch

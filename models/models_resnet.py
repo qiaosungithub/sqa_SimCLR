@@ -91,7 +91,7 @@ class ResNet(nn.Module):
 
     stage_sizes: Sequence[int]
     block_cls: ModuleDef
-    num_classes: int
+    # num_classes: int
     num_filters: int = 64
     dtype: Any = jnp.float32
     act: Callable = nn.relu
@@ -132,7 +132,8 @@ class ResNet(nn.Module):
                     act=self.act,
                 )(x)
         x = jnp.mean(x, axis=(1, 2))
-        x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
+        assert False, f"x shape: {x.shape}"
+        # x = nn.Dense(self.num_classes, dtype=self.dtype)(x) # for SimCLR, we remove this head for outputing representation
         x = jnp.asarray(x, self.dtype)
         return x
 

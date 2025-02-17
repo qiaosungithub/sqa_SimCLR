@@ -26,6 +26,7 @@ from torchvision import datasets, transforms
 from absl import logging
 from functools import partial
 from utils.logging_utils import log_for_0
+from utils.aug_util import ContrastiveLearningViewGenerator, get_simclr_pipeline_transform
 
 
 IMAGE_SIZE = 224
@@ -44,6 +45,15 @@ def prepare_batch_data(batch, batch_size=None):
       batch_size = expected batch_size of this node, for eval's drop_last=False only
     """
     image, label = batch
+    # print(f"len: {len(image)}") # 2
+    # print(f"image0 shape: {image[0].shape}") # (bs, 3, 224, 224)
+    # print(f"image1 shape: {image[1].shape}")
+    # print(f"label shape: {label.shape}") # (bs,)
+    # exit("东灵")
+    if isinstance(image, list):
+        assert len(image) == 2
+        image = torch.cat(image, axis=0)
+        assert batch_size is None, NotImplementedError
 
     # pad the batch if smaller than batch_size
     if batch_size is not None and batch_size > image.shape[0]:
@@ -112,13 +122,17 @@ def create_split(
     if split == "train":
         ds = datasets.ImageFolder(
             os.path.join(dataset_cfg.root, split),
-            transform=transforms.Compose(
-                [
-                    transforms.RandomResizedCrop(IMAGE_SIZE, interpolation=3),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
-                ]
+            # transform=transforms.Compose(
+            #     [
+            #         transforms.RandomResizedCrop(IMAGE_SIZE, interpolation=3),
+            #         transforms.RandomHorizontalFlip(),
+            #         transforms.ToTensor(),
+            #         # transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
+            #     ]
+            # ),
+            transform=ContrastiveLearningViewGenerator(
+                base_transform=get_simclr_pipeline_transform(IMAGE_SIZE),
+                n_views=2,
             ),
             loader=loader,
         )

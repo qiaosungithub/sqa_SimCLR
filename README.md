@@ -1,3 +1,11 @@
+# sqa added: SimCLR
+
+*representation dim*: 
+- For ResNet50 with ImageNet, 2048
+- For _ResNet1 with ImageNet, 64
+
+based on:
+
 # JAX+linen Development Codebase for Image Classification
 
 In this repository, we provide a codebase for training ResNet50+ImageNet on JAX+linen.
