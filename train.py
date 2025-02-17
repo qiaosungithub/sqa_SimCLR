@@ -106,11 +106,18 @@ def create_train_state(
 
     log_for_0(params, logging_fn=print_params)
 
-    tx = optax.sgd(
-        learning_rate=learning_rate_fn,
-        momentum=config.training.momentum,
-        nesterov=True,
-    )
+    if config.training.optimizer == "sgd":
+        tx = optax.sgd(
+            learning_rate=learning_rate_fn,
+            momentum=config.training.momentum,
+            nesterov=True,
+        )
+    elif config.training.optimizer == "LARS":
+        tx = optax.lars(
+            learning_rate=learning_rate_fn,
+            weight_decay=config.training.weight_decay,
+        )
+    else: raise NotImplementedError
     state = TrainState.create(
         # apply_fn=partial(model.apply, method=model.forward),
         apply_fn=model.apply,
@@ -393,6 +400,24 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         train_metrics = MyMetrics(reduction="last")
         for n_batch, batch in enumerate(train_loader):
             batch = prepare_batch_data(batch)
+
+            # # sanity check
+            # def tang(i): return i
+            # p_tang = jax.pmap(tang, axis_name="batch")
+            # images = batch["image"]
+            # print(f"images.shape: {images.shape}")
+            # images = p_tang(images)
+            # print(f"images.shape: {images.shape}")
+            # images = images.reshape(-1, 224, 224, 3)
+            # B = images.shape[0] // 2
+            # import matplotlib.pyplot as plt
+            # import os
+            # path = f"/kmh-nfs-ssd-eu-mount/code/qiao/work/dataset_images_sanity/{n_batch}"
+            # if os.path.exists(path) == False: os.makedirs(path)
+            # for i in range(2*B):
+            #     img = images[i]
+            #     plt.imsave(path+f"/{i}.png", img)
+            # exit("邓东灵")
 
             # # print("batch['image'].shape:", batch['image'].shape)
             # # assert False
