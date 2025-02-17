@@ -67,6 +67,9 @@ def get_config():
     training.steps_per_eval = -1
     training.seed = 3407  # init random seed
 
+    # eval
+    config.evalu = evalu = ml_collections
+
     # wandb
     config.wandb = True
 

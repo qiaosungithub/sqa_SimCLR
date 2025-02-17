@@ -20,6 +20,7 @@ from flax.training import checkpoints, common_utils, train_state
 import jax, ml_collections, optax, wandb, re
 from jax import lax, random
 import jax.numpy as jnp
+import flax.linen as nn
 
 import input_pipeline
 from input_pipeline import prepare_batch_data
@@ -35,6 +36,7 @@ def create_model(*, model_cls, half_precision, num_classes, **kwargs):
     """
     Create a model using the given model class.
     """
+    raise NotImplementedError
     platform = jax.local_devices()[0].platform
     if half_precision:
         if platform == "tpu":
@@ -46,18 +48,18 @@ def create_model(*, model_cls, half_precision, num_classes, **kwargs):
     return model_cls(num_classes=num_classes, dtype=model_dtype, **kwargs)
 
 
-def initialized(key, image_size, model):
+def initialized(key, shape, model):
     """
     Initialize the model, and return the model parameters.
     """
-    input_shape = (1, image_size, image_size, 3)
+    # input_shape = (1, image_size, image_size, 3)
 
     @jax.jit
     def init(*args):
         return model.init(*args)
 
     log_for_0("Initializing params...")
-    variables = init({"params": key}, jnp.ones(input_shape, model.dtype))
+    variables = init({"params": key}, jnp.ones(shape, model.dtype))
     if "batch_stats" not in variables:
         variables["batch_stats"] = {}
     log_for_0("Initializing params done.")
@@ -102,7 +104,8 @@ def create_train_state(
     if config.model.half_precision and platform == "gpu":
         raise NotImplementedError("We consider TPU only.")
 
-    params, batch_stats = initialized(rng, image_size, model)
+    s = config.dataset.image_size
+    params, batch_stats = initialized(rng, (1, s, s, 3), model)
 
     log_for_0(params, logging_fn=print_params)
 
@@ -233,6 +236,75 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
     metrics["lr"] = learning_rate_fn(state.step)
     return new_state, metrics
 
+class LinearHead(nn.Module):
+    num_classes: int=1000
+
+    @nn.compact
+    def __call__(self, x):
+        x = nn.Dense(self.num_classes, kernel_init=nn.initializers.xavier_uniform())(x)
+        return x
+
+def init_eval(state, config, hidden_dim):
+    """
+    Initialize evaluation step.
+    """
+    # representation function compiled
+    p_representation = jax.pmap(partial(state.apply_fn, method=SimCLR.forward, params={"params":state.params, "batch_stats":state.batch_stats}, mutable=False),
+                         axis_name="batch")
+    # initialize head
+    head = LinearHead(num_classes=config.dataset.num_classes)
+    params, _ = initialized(random.PRNGKey(0), (1, hidden_dim), head)
+    log_for_0(params, logging_fn=print_params)
+    # create train state
+    lr = config.evalu.lr * config.training.batch_size / 256.0
+    tx = optax.sgd(
+        learning_rate=lr,
+        momentum=0.9,
+        nesterov=True,
+    )
+    head_state = TrainState.create(
+        apply_fn=head.apply,
+        params=params,
+        tx=tx,
+        batch_stats={},
+    )
+    return p_representation, head_state
+
+def linear_eval_step(batch, head_state, rng_init, num_classes):
+    """
+    train one step for the linear head, with representation in the batch
+    """
+    # ResNet has no dropout; but maintain rng_dropout for future usage
+    rng_step = random.fold_in(rng_init, head_state.step)
+    rng_device = random.fold_in(rng_step, lax.axis_index(axis_name="batch"))
+    rng_dropout, _ = random.split(rng_device)
+
+    representation = batch["representation"]
+    labels = batch["label"]
+
+    def loss_fn(params):
+        logits = head_state.apply_fn(
+            {"params": params}, 
+            representation, 
+            mutable=False,
+            rngs=dict(dropout=rng_dropout),
+        )
+        loss = cross_entropy_loss(logits, labels, num_classes)
+        return loss, logits
+
+    # compute gradients
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    aux, grads = grad_fn(head_state.params)
+    grads = lax.pmean(grads, axis_name="batch")
+    loss = aux[0]
+    logits = aux[1]
+
+    # apply gradients
+    new_head_state = head_state.apply_gradients(grads=grads)
+
+    # compute metrics
+    metrics = compute_metrics(logits, labels, num_classes)
+    return new_head_state, metrics
 
 def eval_step(state, batch, num_classes):
     """
@@ -318,12 +390,18 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         local_batch_size,
         split="train",
     )
+    linear_eval_loader, steps_per_linear_eval = input_pipeline.create_split(
+        config.dataset,
+        local_batch_size,
+        split="linear_eval",
+    )
     eval_loader, steps_per_eval = input_pipeline.create_split(
         config.dataset,
         local_batch_size,
         split="val",
     )
     log_for_0("steps_per_epoch: {}".format(steps_per_epoch))
+    log_for_0("steps_per_linear_eval: {}".format(steps_per_linear_eval))
     log_for_0("steps_per_eval: {}".format(steps_per_eval))
 
     if training_config.steps_per_eval != -1:
@@ -377,6 +455,14 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             # num_classes=config.dataset.num_classes,
             weight_decay=training_config.weight_decay,
             config=config,
+        ),
+        axis_name="batch",
+    )
+    p_linear_eval_step = jax.pmap(
+        partial(
+            linear_eval_step, 
+            rng_init=rng,
+            num_classes=config.dataset.num_classes
         ),
         axis_name="batch",
     )
@@ -493,7 +579,28 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             #             print(f"{k}: {v.shape}")
             # show_dict(d)
             # exit("邓东灵")
-        # evaluation
+        # linear evaluation
+        if (epoch + 1) % training_config.eval_per_epoch == 0:
+            log_for_0("Eval epoch {}...".format(epoch))
+            # sync batch statistics across replicas
+            state = sync_batch_stats(state)
+            eval_metrics = MyMetrics(reduction="avg")
+
+            for n_eval_batch, eval_batch in enumerate(eval_loader):
+                eval_batch = prepare_batch_data(eval_batch, local_batch_size)
+                metrics = p_eval_step(state, eval_batch)
+                eval_metrics.update(metrics)
+
+                if (n_eval_batch + 1) % training_config.log_per_step == 0:
+                    log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
+
+            # compute and log metrics
+            summary = eval_metrics.compute()
+            summary = {f"eval_{key}": val for key, val in summary.items()}
+            summary.update({"ep": ep, "step": step})
+            logger.log(step + 1, summary)
+            
+        # legacy eval
         if (epoch + 1) % training_config.eval_per_epoch == 0:
             log_for_0("Eval epoch {}...".format(epoch))
             # sync batch statistics across replicas

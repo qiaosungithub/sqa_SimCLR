@@ -157,13 +157,51 @@ def create_split(
             persistent_workers=True if dataset_cfg.num_workers > 0 else False,
         )
         steps_per_epoch = len(it)
-    elif split == "val":
+    elif split == "linear_eval": # NOTE: here, for representation evaluation, we train the linear head on the train set
         ds = datasets.ImageFolder(
-            os.path.join(dataset_cfg.root, split),
+            os.path.join(dataset_cfg.root, "train"),
+            transform=transforms.Compose(
+                [
+                    # transforms.Resize(IMAGE_SIZE + CROP_PADDING, interpolation=3),
+                    # transforms.CenterCrop(IMAGE_SIZE),
+                    transforms.RandomResizedCrop(IMAGE_SIZE, interpolation=3),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    # transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
+                ]
+            ),
+            loader=loader,
+        )
+        log_for_0(ds)
+        sampler = DistributedSampler(
+            ds,
+            num_replicas=jax.process_count(),
+            rank=rank,
+            shuffle=True, 
+        )
+        it = DataLoader(
+            ds,
+            batch_size=batch_size,
+            drop_last=True, 
+            worker_init_fn=partial(worker_init_fn, rank=rank),
+            sampler=sampler,
+            num_workers=dataset_cfg.num_workers,
+            prefetch_factor=(
+                dataset_cfg.prefetch_factor if dataset_cfg.num_workers > 0 else None
+            ),
+            pin_memory=dataset_cfg.pin_memory,
+            persistent_workers=True if dataset_cfg.num_workers > 0 else False,
+        )
+        steps_per_epoch = len(it)
+    elif split == "eval": # This is for eval acc
+        ds = datasets.ImageFolder(
+            os.path.join(dataset_cfg.root, "val"),
             transform=transforms.Compose(
                 [
                     transforms.Resize(IMAGE_SIZE + CROP_PADDING, interpolation=3),
                     transforms.CenterCrop(IMAGE_SIZE),
+                    # transforms.RandomResizedCrop(IMAGE_SIZE, interpolation=3),
+                    # transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
                     # transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
                 ]
