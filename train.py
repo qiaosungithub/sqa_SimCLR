@@ -11,31 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import functools
 from typing import Any
+from functools import partial
 
 # from absl import logging
 from flax import jax_utils
-from flax.training import checkpoints
-from flax.training import common_utils
-from flax.training import train_state
-import jax
-from jax import lax
+from flax.training import checkpoints, common_utils, train_state
+import jax, ml_collections, optax, wandb, re
+from jax import lax, random
 import jax.numpy as jnp
-from jax import random
-import ml_collections
-import optax
 
 import input_pipeline
 from input_pipeline import prepare_batch_data
-import models.models_resnet as models_resnet
+# import models.models_resnet as models_resnet
 from models.models_simclr import SimCLR
 
 from utils.info_util import print_params
 from utils.logging_utils import log_for_0, GoodLogger
 from utils.metric_utils import Timer, MyMetrics
-import wandb
-import re
 
 
 def create_model(*, model_cls, half_precision, num_classes, **kwargs):
@@ -119,6 +112,7 @@ def create_train_state(
         nesterov=True,
     )
     state = TrainState.create(
+        # apply_fn=partial(model.apply, method=model.forward),
         apply_fn=model.apply,
         params=params,
         tx=tx,
@@ -154,8 +148,39 @@ def cross_entropy_loss(logits, labels, num_classes):
     xentropy = optax.softmax_cross_entropy(logits=logits, labels=one_hot_labels)
     return jnp.mean(xentropy)
 
+def NTXent(features, temperature=0.1):
+    assert features.ndim == 3
+    features = features.reshape(-1, features.shape[-1])
+    B = features.shape[0] // 2
+    # generate mask
+    labels = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
+    labels = (labels[:, None] == labels[None, :]).astype(jnp.float32)
+    mask = jnp.eye(2 * B, dtype=jnp.bool)
+    labels = labels[~mask].reshape(2 * B, 2 * B - 1)
+    # compute similarity matrix
+    features = features / jnp.linalg.norm(features, axis=1, keepdims=True)
+    similarity_matrix = jnp.dot(features, features.T)
+    assert similarity_matrix.shape == (2 * B, 2 * B)
+    similarity_matrix = similarity_matrix[~mask].reshape(2 * B, 2 * B - 1)
+    # compute logits
+    positives = similarity_matrix[labels.astype(jnp.bool)].reshape(2 * B, 1)
+    negatives = similarity_matrix[~labels.astype(jnp.bool)].reshape(2 * B, 2 * B-2)
 
-def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, num_classes):
+    # print(f"B: {B}, positives shape: {positives.shape}, negatives shape: {negatives.shape}")
+    # exit("路明")
+
+    logits = jnp.concatenate([positives, negatives], axis=1)
+    logits /= temperature
+    # compute loss
+    prob = jax.nn.softmax(logits, axis=1)
+    prob = prob[:, 0]
+    loss = jnp.mean(-jnp.log(prob))
+    # compute acc
+    pred = jnp.argmax(logits, axis=1)
+    acc = jnp.mean(pred == 0)
+    return loss, acc
+
+def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
     """
     Perform a single training step. This function will be pmap, so we can't print inside it.
     """
@@ -164,25 +189,31 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, num_class
     rng_device = random.fold_in(rng_step, lax.axis_index(axis_name="batch"))
     rng_dropout, _ = random.split(rng_device)
 
+    images = batch["image"]
+
     def loss_fn(params):
-        logits, new_model_state = state.apply_fn(
+        features, new_model_state = state.apply_fn(
             {"params": params, "batch_stats": state.batch_stats},
-            batch["image"],
+            images,
             mutable=["batch_stats"],
             rngs=dict(dropout=rng_dropout),
         )
-        loss = cross_entropy_loss(logits, batch["label"], num_classes)
-        weight_penalty_params = jax.tree_util.tree_leaves(params)
-        weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
-        weight_penalty = weight_decay * 0.5 * weight_l2
-        loss = loss + weight_penalty
-        return loss, (new_model_state, logits)
+        # gather all features
+        features = lax.all_gather(features, axis_name="batch")
+        # assert False, f"features shape: {features.shape}, images shape: {images.shape}" # feature: (8, 2b_2, c), images: (2b_2, 224, 224, 3)
+        loss, acc = NTXent(features, temperature=config.training.temperature)
+        # loss = cross_entropy_loss(logits, batch["label"], num_classes)
+        # weight_penalty_params = jax.tree_util.tree_leaves(params)
+        # weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
+        # weight_penalty = weight_decay * 0.5 * weight_l2
+        # loss = loss + weight_penalty
+        return loss, (new_model_state, acc)
 
     # compute gradients
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     aux, grads = grad_fn(state.params)
     grads = lax.pmean(grads, axis_name="batch")
-    new_model_state, logits = aux[1]
+    new_model_state, acc = aux[1]
 
     # apply gradients
     new_state = state.apply_gradients(
@@ -190,7 +221,8 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, num_class
     )
 
     # compute metrics
-    metrics = compute_metrics(logits, batch["label"], num_classes)
+    # metrics = compute_metrics(logits, batch["label"], num_classes)
+    metrics = {"loss": aux[0], "contrastive_acc": acc}
     metrics["lr"] = learning_rate_fn(state.step)
     return new_state, metrics
 
@@ -216,7 +248,7 @@ def save_checkpoint(state, workdir):
     checkpoints.save_checkpoint_multiprocess(workdir, state, step, keep=2)
 
 
-@functools.partial(jax.pmap, axis_name="x")
+@partial(jax.pmap, axis_name="x")
 def cross_replica_mean(x):
     """
     Compute an average of a variable across workers.
@@ -239,6 +271,9 @@ def sync_batch_stats(state):
 
 
 def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> TrainState:
+    # # test
+    # features = jnp.ones((8, 2, 64))
+    # NTXent(features, temperature=0.1)
     ######################################################################
     #                       Initialize training                          #
     ######################################################################
@@ -328,17 +363,18 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     ######################################################################
 
     p_train_step = jax.pmap(
-        functools.partial(
+        partial(
             train_step,
             rng_init=rng,
             learning_rate_fn=learning_rate_fn,
-            num_classes=config.dataset.num_classes,
+            # num_classes=config.dataset.num_classes,
             weight_decay=training_config.weight_decay,
+            config=config,
         ),
         axis_name="batch",
     )
     p_eval_step = jax.pmap(
-        functools.partial(eval_step, num_classes=config.dataset.num_classes),
+        partial(eval_step, num_classes=config.dataset.num_classes),
         axis_name="batch",
     )
 
@@ -357,6 +393,50 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         train_metrics = MyMetrics(reduction="last")
         for n_batch, batch in enumerate(train_loader):
             batch = prepare_batch_data(batch)
+
+            # # print("batch['image'].shape:", batch['image'].shape)
+            # # assert False
+
+            # # # here is code for us to visualize the images
+            # import matplotlib.pyplot as plt
+            # import numpy as np
+            # import os
+            # images = batch["image"]
+            # print(f"images.shape: {images.shape}", flush=True)
+            # print(f'image max: {jnp.max(images)}, min: {jnp.min(images)}') # here, [0, 1] TODO: whether to transform it into [-1, 1]
+
+            # # from input_pipeline import MEAN_RGB, STDDEV_RGB
+
+            # # save batch["image"] to ./images/{epoch}/i.png
+            # rank = jax.process_index()
+
+            # # if os.path.exists(f"/kmh-nfs-us-mount/staging/sqa/images/{n_batch}/{rank}") == False:
+            # #   os.makedirs(f"/kmh-nfs-us-mount/staging/sqa/images/{n_batch}/{rank}")
+            # path = f"/kmh-nfs-ssd-eu-mount/code/qiao/work/dataset_images/{n_batch}/{rank}"
+            # if os.path.exists(path) == False:
+            #   os.makedirs(path)
+            # for i in range(images[0].shape[0]):
+            #     # print the max and min of the image
+            #     # print(f"max: {np.max(images[0][i])}, min: {np.min(images[0][i])}")
+            #     # img_test = images[0][:100]
+            #     # save_img(img_test, f"/kmh-nfs-ssd-eu-mount/code/qiao/flow-matching/sqa_flow-matching/dataset_images/{n_batch}/{rank}", im_name=f"{i}.png", grid=(10, 10))
+            #     # break
+            #     # use the max and min to normalize the image to [0, 1]
+            #     img = images[0][i]
+            #     # img = img * (jnp.array(STDDEV_RGB)/255.).reshape(1,1,3) + (jnp.array(MEAN_RGB)/255.).reshape(1,1,3)
+            #     # img = (img + 1) / 2
+            #     # print(f"max: {np.max(img)}, min: {np.min(img)}")
+            #     img = jnp.clip(img, 0, 1)
+            #     # img = (img - np.min(img)) / (np.max(img) - np.min(img))
+            #     # img = img.squeeze(-1)
+            #     plt.imsave(path+f"/{i}.png", img) # if MNIST, add cmap='gray'
+            #     if i>20: break
+
+            # print(f"saving images for n_batch {n_batch}, done.")
+            # if n_batch > 0:
+            #   exit(114514)
+            # continue
+
             state, metrics = p_train_step(state, batch)
             train_metrics.update(metrics)
 

@@ -19,13 +19,13 @@ class SimCLR(nn.Module):
             nn.Dense(self.out_dim)
         ])
 
-    def __call__(self, x):
+    def forward(self, x):
         """For extracting representation"""
         x = self.encoder(x)
         # x = self.projection_head(x)
         return x
 
-    def forward(self, x):
+    def __call__(self, x):
         """For training"""
         x = self.encoder(x)
         x = self.projection_head(x)

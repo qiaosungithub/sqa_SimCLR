@@ -132,7 +132,7 @@ class ResNet(nn.Module):
                     act=self.act,
                 )(x)
         x = jnp.mean(x, axis=(1, 2))
-        assert False, f"x shape: {x.shape}"
+        # assert False, f"x shape: {x.shape}"
         # x = nn.Dense(self.num_classes, dtype=self.dtype)(x) # for SimCLR, we remove this head for outputing representation
         x = jnp.asarray(x, self.dtype)
         return x

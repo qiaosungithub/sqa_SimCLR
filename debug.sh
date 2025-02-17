@@ -14,17 +14,17 @@ conda activate $OWN_CONDA_ENV_NAME
 
 echo "start running main"
 
-JAX_PLATFORMS=cpu python3 main.py \
-    --workdir=${LOGDIR} \
-    --mode=local_debug \
-    --config=configs/load_config.py:local_debug \
-    --config.dataset.root=${EU_IMAGENET_FAKE} \
-2>&1 | grep --invert-match Could
-
-# python3 main.py \
+# JAX_PLATFORMS=cpu python3 main.py \
 #     --workdir=${LOGDIR} \
 #     --mode=local_debug \
 #     --config=configs/load_config.py:local_debug \
 #     --config.dataset.root=${EU_IMAGENET_FAKE} \
-#     --debug
+# 2>&1 | grep --invert-match Could
+
+python3 main.py \
+    --workdir=${LOGDIR} \
+    --mode=local_debug \
+    --config=configs/load_config.py:local_debug \
+    --config.dataset.root=${EU_IMAGENET_FAKE} \
+    --debug
 2>&1 | grep --invert-match Could

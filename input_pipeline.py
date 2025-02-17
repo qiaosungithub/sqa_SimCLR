@@ -165,7 +165,7 @@ def create_split(
                     transforms.Resize(IMAGE_SIZE + CROP_PADDING, interpolation=3),
                     transforms.CenterCrop(IMAGE_SIZE),
                     transforms.ToTensor(),
-                    transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
+                    # transforms.Normalize(mean=MEAN_RGB, std=STDDEV_RGB),
                 ]
             ),
             loader=loader,
