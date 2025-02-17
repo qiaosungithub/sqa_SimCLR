@@ -14,7 +14,7 @@
 import functools
 from typing import Any
 
-from absl import logging
+# from absl import logging
 from flax import jax_utils
 from flax.training import checkpoints
 from flax.training import common_utils
@@ -227,12 +227,13 @@ def sync_batch_stats(state):
     """Sync the batch statistics across replicas."""
     # Each device has its own version of the running average batch statistics and
     # we sync them before evaluation.
-    # TODO{zhh}: is this intentional? I forgot the reason.
-    return state
-    try:
-        new_batch_stats = cross_replica_mean(state.batch_stats)
-    except:
-        new_batch_stats = state.batch_stats
+    # if there is not batch_stats, we don't sync
+    # return state
+    # try:
+    #     new_batch_stats = cross_replica_mean(state.batch_stats)
+    # except:
+    #     new_batch_stats = state.batch_stats
+    new_batch_stats = cross_replica_mean(state.batch_stats)
     return state.replace(batch_stats=new_batch_stats)
 
 
@@ -242,7 +243,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     ######################################################################
     training_config = config.training
     if jax.process_index() == 0 and training_config.wandb:
-        wandb.init(project="resnet_linen", dir=workdir)
+        wandb.init(project="sqa_simclr", dir=workdir)
         wandb.config.update(config.to_dict())
         ka = re.search(r"kmh-tpuvm-v[23]-32(-preemptible)?-(\d+)", workdir).group()
         wandb.config.update({"ka": ka})
@@ -353,7 +354,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             train_metrics.update(metrics)
 
             if epoch == epoch_offset and n_batch == 0:
-                logging.info("Initial compilation completed. Reset timer.")
+                log_for_0("Initial compilation completed. Reset timer.")
                 timer.reset()
 
             step = epoch * steps_per_epoch + n_batch
@@ -369,6 +370,17 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
                     summary.update({"ep": ep, "step": step})
                     logger.log(step + 1, summary)
 
+            # # print(f"state.batch_stats: {state.batch_stats}")
+            # d = state.batch_stats
+            # def show_dict(d):
+            #     for k, v in d.items():
+            #         if isinstance(v, dict):
+            #             print(f"{k}:")
+            #             show_dict(v)
+            #         else:
+            #             print(f"{k}: {v.shape}")
+            # show_dict(d)
+            # exit("邓东灵")
         # evaluation
         if (epoch + 1) % training_config.eval_per_epoch == 0:
             log_for_0("Eval epoch {}...".format(epoch))
