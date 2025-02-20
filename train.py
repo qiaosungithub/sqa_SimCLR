@@ -158,23 +158,28 @@ def cross_entropy_loss(logits, labels, num_classes):
     xentropy = optax.softmax_cross_entropy(logits=logits, labels=one_hot_labels)
     return jnp.mean(xentropy)
 
-def NTXent(features, temperature=0.1):
+def NTXent(features, mask, labels, temperature=0.1):
     assert features.ndim == 3
     features = features.reshape(-1, features.shape[-1])
     B = features.shape[0] // 2
     # generate mask
-    labels = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
-    labels = (labels[:, None] == labels[None, :]).astype(jnp.float32)
-    mask = jnp.eye(2 * B, dtype=jnp.bool)
-    labels = labels[~mask].reshape(2 * B, 2 * B - 1)
+    # labels = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
+    # labels = (labels[:, None] == labels[None, :]).astype(jnp.float32)
+    # mask = jnp.eye(2 * B, dtype=jnp.bool)
+    # assert False, f"labels shape: {labels.shape}, mask shape: {mask.shape}"
+    # mask_indices = jnp.where(~mask)
+    mask = jax.device_get(mask)  # 将 mask 转换为 NumPy 数组
+    # labels = labels[~mask].reshape(2 * B, 2 * B - 1)
     # compute similarity matrix
     features = features / jnp.linalg.norm(features, axis=1, keepdims=True)
     similarity_matrix = jnp.dot(features, features.T)
     assert similarity_matrix.shape == (2 * B, 2 * B)
     similarity_matrix = similarity_matrix[~mask].reshape(2 * B, 2 * B - 1)
     # compute logits
-    positives = similarity_matrix[labels.astype(jnp.bool)].reshape(2 * B, 1)
-    negatives = similarity_matrix[~labels.astype(jnp.bool)].reshape(2 * B, 2 * B-2)
+    # labels = labels.astype(jnp.bool)
+    labels = jax.device_get(labels)
+    positives = similarity_matrix[labels].reshape(2 * B, 1)
+    negatives = similarity_matrix[~labels].reshape(2 * B, 2 * B-2)
 
     # print(f"B: {B}, positives shape: {positives.shape}, negatives shape: {negatives.shape}")
     # exit("路明")
@@ -190,7 +195,7 @@ def NTXent(features, temperature=0.1):
     acc = jnp.mean(pred == 0)
     return loss, acc
 
-def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
+def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config, mask, labels_for_compute):
     """
     Perform a single training step. This function will be pmap, so we can't print inside it.
     """
@@ -211,7 +216,7 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
         # gather all features
         features = lax.all_gather(features, axis_name="batch")
         # assert False, f"features shape: {features.shape}, images shape: {images.shape}" # feature: (8, 2b_2, c), images: (2b_2, 224, 224, 3)
-        loss, acc = NTXent(features, temperature=config.training.temperature)
+        loss, acc = NTXent(features, mask=mask, labels=labels_for_compute, temperature=config.training.temperature)
         # loss = cross_entropy_loss(logits, batch["label"], num_classes)
         # weight_penalty_params = jax.tree_util.tree_leaves(params)
         # weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
@@ -446,6 +451,13 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     ######################################################################
     #                     Prepare for Training Loop                      #
     ######################################################################
+    B = config.training.batch_size
+    mask = jnp.eye(2 * B, dtype=jnp.bool)
+
+    labels_for_compute = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
+    labels_for_compute = (labels_for_compute[:, None] == labels_for_compute[None, :]).astype(jnp.float32)
+    labels_for_compute = labels_for_compute[~mask].reshape(2 * B, 2 * B - 1)
+    labels_for_compute = labels_for_compute.astype(jnp.bool)
 
     p_train_step = jax.pmap(
         partial(
@@ -455,6 +467,8 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             # num_classes=config.dataset.num_classes,
             weight_decay=training_config.weight_decay,
             config=config,
+            mask=mask,
+            labels_for_compute=labels_for_compute,
         ),
         axis_name="batch",
     )

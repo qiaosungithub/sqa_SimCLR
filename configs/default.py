@@ -66,9 +66,10 @@ def get_config():
     training.checkpoint_max_keep = 2
     training.steps_per_eval = -1
     training.seed = 3407  # init random seed
+    training.optimizer = "adamw"
 
     # eval
-    config.evalu = evalu = ml_collections
+    config.evalu = evalu = ml_collections.ConfigDict()
 
     # wandb
     config.wandb = True

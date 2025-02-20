@@ -9,7 +9,7 @@ training:
     wandb: False
     checkpoint_per_epoch: 1
     temperature: 0.5
-    weight_decay: 1e-6
+    weight_decay: 0.000001
     # load_from: /kmh-nfs-ssd-eu-mount/code/hanhong/MyFile/resnet_jax_nnx/fake_tmp
 model:
     name: _ResNet1
