@@ -55,7 +55,7 @@ class GoodLogger:
         for k, v in dict_obj.items():
             log_str += f" {k}={v:.5f}," if isinstance(v, float) else f" {k}={v},"
         log_str = log_str.strip(",")
-        logging.info(log_str)
+        log_for_0(log_str)
         if self.use_wandb:
             wandb.log(dict_obj, step=step)
 

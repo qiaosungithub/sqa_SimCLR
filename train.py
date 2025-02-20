@@ -438,14 +438,15 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     state = create_train_state(
         rng, config, model, config.dataset.image_size, learning_rate_fn
     )
-    state = restore_checkpoint(state, workdir)
-    step_offset = int(state.step)
-    epoch_offset = step_offset // steps_per_epoch
-    assert (
-        epoch_offset * steps_per_epoch == step_offset
-    ), "Your checkpoint step {} is not aligned with steps_per_epoch {}".format(
-        step_offset, steps_per_epoch
-    )
+    # state = restore_checkpoint(state, workdir) # restore checkpoint
+    # step_offset = int(state.step)
+    # epoch_offset = step_offset // steps_per_epoch
+    # assert (
+    #     epoch_offset * steps_per_epoch == step_offset
+    # ), "Your checkpoint step {} is not aligned with steps_per_epoch {}".format(
+    #     step_offset, steps_per_epoch
+    # )
+    epoch_offset = 0
     state = jax_utils.replicate(state)
 
     ######################################################################
