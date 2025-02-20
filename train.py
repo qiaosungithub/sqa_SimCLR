@@ -390,22 +390,22 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         local_batch_size,
         split="train",
     )
-    linear_eval_loader, steps_per_linear_eval = input_pipeline.create_split(
-        config.dataset,
-        local_batch_size,
-        split="linear_eval",
-    )
-    eval_loader, steps_per_eval = input_pipeline.create_split(
-        config.dataset,
-        local_batch_size,
-        split="val",
-    )
+    # linear_eval_loader, steps_per_linear_eval = input_pipeline.create_split(
+    #     config.dataset,
+    #     local_batch_size,
+    #     split="linear_eval",
+    # )
+    # eval_loader, steps_per_eval = input_pipeline.create_split(
+    #     config.dataset,
+    #     local_batch_size,
+    #     split="val",
+    # )
     log_for_0("steps_per_epoch: {}".format(steps_per_epoch))
-    log_for_0("steps_per_linear_eval: {}".format(steps_per_linear_eval))
-    log_for_0("steps_per_eval: {}".format(steps_per_eval))
+    # log_for_0("steps_per_linear_eval: {}".format(steps_per_linear_eval))
+    # log_for_0("steps_per_eval: {}".format(steps_per_eval))
 
-    if training_config.steps_per_eval != -1:
-        steps_per_eval = training_config.steps_per_eval
+    # if training_config.steps_per_eval != -1:
+    #     steps_per_eval = training_config.steps_per_eval
 
     ######################################################################
     #                       Create Train State                           #
@@ -458,18 +458,18 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         ),
         axis_name="batch",
     )
-    p_linear_eval_step = jax.pmap(
-        partial(
-            linear_eval_step, 
-            rng_init=rng,
-            num_classes=config.dataset.num_classes
-        ),
-        axis_name="batch",
-    )
-    p_eval_step = jax.pmap(
-        partial(eval_step, num_classes=config.dataset.num_classes),
-        axis_name="batch",
-    )
+    # p_linear_eval_step = jax.pmap(
+    #     partial(
+    #         linear_eval_step, 
+    #         rng_init=rng,
+    #         num_classes=config.dataset.num_classes
+    #     ),
+    #     axis_name="batch",
+    # )
+    # p_eval_step = jax.pmap(
+    #     partial(eval_step, num_classes=config.dataset.num_classes),
+    #     axis_name="batch",
+    # )
 
     log_for_0("Initial compilation, this might take some minutes...")
 
@@ -579,47 +579,47 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             #             print(f"{k}: {v.shape}")
             # show_dict(d)
             # exit("邓东灵")
-        # linear evaluation
-        if (epoch + 1) % training_config.eval_per_epoch == 0:
-            log_for_0("Eval epoch {}...".format(epoch))
-            # sync batch statistics across replicas
-            state = sync_batch_stats(state)
-            eval_metrics = MyMetrics(reduction="avg")
+        # # linear evaluation
+        # if (epoch + 1) % training_config.eval_per_epoch == 0:
+        #     log_for_0("Eval epoch {}...".format(epoch))
+        #     # sync batch statistics across replicas
+        #     state = sync_batch_stats(state)
+        #     eval_metrics = MyMetrics(reduction="avg")
 
-            for n_eval_batch, eval_batch in enumerate(eval_loader):
-                eval_batch = prepare_batch_data(eval_batch, local_batch_size)
-                metrics = p_eval_step(state, eval_batch)
-                eval_metrics.update(metrics)
+        #     for n_eval_batch, eval_batch in enumerate(eval_loader):
+        #         eval_batch = prepare_batch_data(eval_batch, local_batch_size)
+        #         metrics = p_eval_step(state, eval_batch)
+        #         eval_metrics.update(metrics)
 
-                if (n_eval_batch + 1) % training_config.log_per_step == 0:
-                    log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
+        #         if (n_eval_batch + 1) % training_config.log_per_step == 0:
+        #             log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
 
-            # compute and log metrics
-            summary = eval_metrics.compute()
-            summary = {f"eval_{key}": val for key, val in summary.items()}
-            summary.update({"ep": ep, "step": step})
-            logger.log(step + 1, summary)
+        #     # compute and log metrics
+        #     summary = eval_metrics.compute()
+        #     summary = {f"eval_{key}": val for key, val in summary.items()}
+        #     summary.update({"ep": ep, "step": step})
+        #     logger.log(step + 1, summary)
             
-        # legacy eval
-        if (epoch + 1) % training_config.eval_per_epoch == 0:
-            log_for_0("Eval epoch {}...".format(epoch))
-            # sync batch statistics across replicas
-            state = sync_batch_stats(state)
-            eval_metrics = MyMetrics(reduction="avg")
+        # # legacy eval
+        # if (epoch + 1) % training_config.eval_per_epoch == 0:
+        #     log_for_0("Eval epoch {}...".format(epoch))
+        #     # sync batch statistics across replicas
+        #     state = sync_batch_stats(state)
+        #     eval_metrics = MyMetrics(reduction="avg")
 
-            for n_eval_batch, eval_batch in enumerate(eval_loader):
-                eval_batch = prepare_batch_data(eval_batch, local_batch_size)
-                metrics = p_eval_step(state, eval_batch)
-                eval_metrics.update(metrics)
+        #     for n_eval_batch, eval_batch in enumerate(eval_loader):
+        #         eval_batch = prepare_batch_data(eval_batch, local_batch_size)
+        #         metrics = p_eval_step(state, eval_batch)
+        #         eval_metrics.update(metrics)
 
-                if (n_eval_batch + 1) % training_config.log_per_step == 0:
-                    log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
+        #         if (n_eval_batch + 1) % training_config.log_per_step == 0:
+        #             log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
 
-            # compute and log metrics
-            summary = eval_metrics.compute()
-            summary = {f"eval_{key}": val for key, val in summary.items()}
-            summary.update({"ep": ep, "step": step})
-            logger.log(step + 1, summary)
+        #     # compute and log metrics
+        #     summary = eval_metrics.compute()
+        #     summary = {f"eval_{key}": val for key, val in summary.items()}
+        #     summary.update({"ep": ep, "step": step})
+        #     logger.log(step + 1, summary)
 
         # save checkpoint
         if (
