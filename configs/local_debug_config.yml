@@ -5,7 +5,7 @@ training:
     num_epochs: 100
     warmup_epochs: 10
     batch_size: 256
-    log_per_step: 20
+    log_per_step: 1
     wandb: False
     checkpoint_per_epoch: 1
     temperature: 0.5
