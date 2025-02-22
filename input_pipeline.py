@@ -55,6 +55,13 @@ def prepare_batch_data(batch, batch_size=None):
         image = torch.cat(image, axis=0)
         assert batch_size is None, NotImplementedError
 
+        label = torch.cat([label, label], axis=0)
+
+        # print(f"image shape: {image.shape}")
+        # print(f"label shape: {label.shape}")
+
+        # exit("东灵")
+
     # pad the batch if smaller than batch_size
     if batch_size is not None and batch_size > image.shape[0]:
         image = torch.cat(

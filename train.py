@@ -190,16 +190,28 @@ def NTXent(features, temperature=0.1):
     # logits = jnp.concatenate([positives, negatives], axis=1)
     logits = similarity_matrix / temperature
     # compute loss
-    prob = jax.nn.softmax(logits, axis=1)
-    # prob = prob[:, 0]
-    prob = jnp.sum(prob * labels, axis=1)
-    loss = jnp.mean(-jnp.log(prob))
+    # legacy
+    # prob = jax.nn.softmax(logits, axis=1)
+    # # prob = prob[:, 0]
+    # prob = jnp.sum(prob * labels, axis=1)
+    # loss = jnp.mean(-jnp.log(prob))
+
+    # optimized version
+    loss = - jnp.sum(logits * labels, axis=1) + nn.logsumexp(logits, axis=1)
+    loss = jnp.mean(loss)
     # compute acc
     pred = jnp.argmax(logits, axis=1)
     correct_label = jnp.argmax(labels, axis=1)
     acc = jnp.mean(pred == correct_label)
     # acc = jnp.mean(pred == 0)
-    return loss, acc
+
+    # debug dict
+    d = {}
+    # d["features"] = features
+    # d["similarity_matrix"] = similarity_matrix
+    # d["labels"] = labels
+    # d["correct_label"] = correct_label
+    return loss, acc, d
 
 def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
     """
@@ -222,20 +234,21 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
         # gather all features
         features = lax.all_gather(features, axis_name="batch")
         # assert False, f"features shape: {features.shape}, images shape: {images.shape}" # feature: (8, 2b_2, c), images: (2b_2, 224, 224, 3)
-        loss, acc = NTXent(features, temperature=config.training.temperature)
+        loss, acc, d = NTXent(features, temperature=config.training.temperature)
         # loss = cross_entropy_loss(logits, batch["label"], num_classes)
         # weight_penalty_params = jax.tree_util.tree_leaves(params)
         # weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
         # weight_penalty = weight_decay * 0.5 * weight_l2
         # loss = loss + weight_penalty
-        return loss, (new_model_state, acc)
+        return loss, (new_model_state, acc, d)
 
     # compute gradients
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     aux, grads = grad_fn(state.params)
     grads = lax.pmean(grads, axis_name="batch")
-    new_model_state, acc = aux[1]
+    new_model_state, acc, d = aux[1]
 
+    # d["grad"] = grads
     # apply gradients
     new_state = state.apply_gradients(
         grads=grads, batch_stats=new_model_state["batch_stats"]
@@ -245,7 +258,7 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
     # metrics = compute_metrics(logits, batch["label"], num_classes)
     metrics = {"loss": aux[0], "contrastive_acc": acc}
     metrics["lr"] = learning_rate_fn(state.step)
-    return new_state, metrics
+    return new_state, metrics, d
 
 class LinearHead(nn.Module):
     num_classes: int=1000
@@ -373,6 +386,8 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
         wandb.config.update(config.to_dict())
         ka = re.search(r"kmh-tpuvm-v[23]-32(-preemptible)?-(\d+)", workdir).group()
         wandb.config.update({"ka": ka})
+
+    rank = jax.process_index()
 
     logger = GoodLogger(use_wandb=training_config.wandb)
 
@@ -569,8 +584,38 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             #   exit(114514)
             # continue
 
-            state, metrics = p_train_step(state, batch)
+            state, metrics, d = p_train_step(state, batch)
             train_metrics.update(metrics)
+
+            # # debug
+            # # for k, v in d.items():
+            # #     print(f"{k}: {v.shape}")
+            # #     d[k] = v[rank]
+            # grad = d["grad"] # a dict
+            # def show(d, rank): 
+            #     for k, v in d.items():
+            #         if isinstance(v, dict):
+            #             print(f"{k}:\n")
+            #             show(v, rank)
+            #             print("\n")
+            #         else:
+            #             print(f"{k}: {v.shape}, magnitude: {jnp.linalg.norm(v[rank])}")
+            # show(grad, 0)
+            # show(grad, 1)
+
+            
+            # exit("丁")
+            # import os
+            # path = f"/kmh-nfs-ssd-eu-mount/staging/sqa/debug-kmh-tpuvm-v3-32-1/{rank}/"
+            # if os.path.exists(path) == False:
+            #     os.makedirs(path)
+            # with open(path+"debug.txt", "w") as f:
+            #     f.write(f"correct_label: {d['correct_label']}\n\n\n")
+            #     f.write(f"features: {d['features']}\n\n\n")
+            #     f.write(f"similarity_matrix: {d['similarity_matrix']}\n\n\n")
+            #     f.write(f"loss: {metrics['loss']}\n\n\n")
+            #     # f.write(f"grad: {d['grad']}\n\n\n")
+            # exit("邓东灵")
 
             if epoch == epoch_offset and n_batch == 0:
                 log_for_0("Initial compilation completed. Reset timer.")

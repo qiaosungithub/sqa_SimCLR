@@ -1,13 +1,22 @@
-# Put your `debug_remote.sh` configs in this YAML file
+# Put your `debug.sh` configs in this YAML file
 training:
-    learning_rate: 0.1
-    num_epochs: 3
-    batch_size: 1024
+    optimizer: LARS
+    learning_rate: 0.3 # base lr
+    num_epochs: 100
+    warmup_epochs: 10
+    batch_size: 2048
     log_per_step: 20
     wandb: False
-    # load_from: /kmh-nfs-ssd-eu-mount/staging/sqa/zhh_data/
+    checkpoint_per_epoch: 10
+    temperature: 0.5
+    weight_decay: 0.000001
+    # load_from: /kmh-nfs-ssd-eu-mount/code/hanhong/MyFile/resnet_jax_nnx/fake_tmp
 model:
+    # name: _ResNet1
     name: ResNet50
+evalu:
+    lr: 0.1 # base lr
+    ep: 90
 dataset:
     prefetch_factor: 2
     num_workers: 64 # NOTE: On V2, if you don't use num_workers=64, sometimes the code will exit unexpectedly

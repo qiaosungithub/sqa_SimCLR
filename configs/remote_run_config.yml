@@ -6,8 +6,7 @@ training:
     warmup_epochs: 10
     batch_size: 2048
     log_per_step: 20
-    wandb: False
-    checkpoint_per_epoch: 1
+    checkpoint_per_epoch: 10
     temperature: 0.5
     weight_decay: 0.000001
     # load_from: /kmh-nfs-ssd-eu-mount/code/hanhong/MyFile/resnet_jax_nnx/fake_tmp

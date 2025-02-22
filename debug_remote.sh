@@ -2,8 +2,8 @@
 source config.sh
 CONDA_ENV=$OWN_CONDA_ENV_NAME
 
-USE_FAKE_DATASET=1
-# USE_FAKE_DATASET=2
+# USE_FAKE_DATASET=1
+USE_FAKE_DATASET=2
 
 ############# No need to modify #############
 
@@ -31,6 +31,7 @@ LOGDIR=$STAGEDIR/log
 sudo rm -rf $LOGDIR
 sudo mkdir -p ${LOGDIR}
 sudo chmod 777 -R ${LOGDIR}
+sudo chmod 777 -R $STAGEDIR
 echo 'Log dir: '$LOGDIR
 
 
