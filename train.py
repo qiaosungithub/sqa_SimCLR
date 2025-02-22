@@ -197,7 +197,8 @@ def NTXent(features, temperature=0.1):
     # loss = jnp.mean(-jnp.log(prob))
 
     # optimized version
-    loss = - jnp.sum(logits * labels, axis=1) + nn.logsumexp(logits, axis=1)
+    logits0 = jnp.fill_diagonal(logits, 0, inplace=False)
+    loss = - jnp.sum(logits0 * labels, axis=1) + nn.logsumexp(logits, axis=1)
     loss = jnp.mean(loss)
     # compute acc
     pred = jnp.argmax(logits, axis=1)
@@ -209,8 +210,12 @@ def NTXent(features, temperature=0.1):
     d = {}
     # d["features"] = features
     # d["similarity_matrix"] = similarity_matrix
-    # d["labels"] = labels
-    # d["correct_label"] = correct_label
+    # # d["labels"] = labels
+    # # d["correct_label"] = correct_label
+    # d["logits"] = logits
+    # d["logsumexp"] = nn.logsumexp(logits, axis=1)
+    # d["another"] = jnp.sum(logits * labels, axis=1)
+    # d["loss"] = loss
     return loss, acc, d
 
 def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
@@ -588,9 +593,10 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             train_metrics.update(metrics)
 
             # # debug
-            # # for k, v in d.items():
-            # #     print(f"{k}: {v.shape}")
-            # #     d[k] = v[rank]
+            # for k, v in d.items():
+            #     print(f"{k}: {v.shape}")
+            #     print(f"{jnp.any(jnp.isnan(v))}")
+            #     d[k] = v[rank]
             # grad = d["grad"] # a dict
             # def show(d, rank): 
             #     for k, v in d.items():
