@@ -442,7 +442,12 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     #                       Create Train State                           #
     ######################################################################
 
-    base_learning_rate = training_config.learning_rate * global_batch_size / 256.0
+    lr_scaling = config.training.lr_scaling
+    lr = config.training.learning_rate
+    if lr_scaling == "linear":
+        base_learning_rate = lr * global_batch_size / 256.0
+    elif lr_scaling == "sqrt":
+        base_learning_rate = lr * jnp.sqrt(global_batch_size)
 
     # model_cls = SimCLR
     # model = create_model(
