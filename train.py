@@ -159,12 +159,25 @@ def cross_entropy_loss(logits, labels, num_classes):
     return jnp.mean(xentropy)
 
 def NTXent(features, temperature=0.1):
+    """
+    Tricky here: labels stand for the index of image, the same label corresponds to the same image
+    e.g. bs=2048
+    Each machine (process) has 512 different images
+    i.e. (1, ..., 512, 1', ..., 512')
+    and after all gather, becomes (1, ..., 512, 1', ..., 512', 513, ..., 1024, 513', ..., 1024', ...)
+    """
     assert features.ndim == 3
     features = features.reshape(-1, features.shape[-1])
     B = features.shape[0] // 2
-    # generate mask
-    labels = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
-    labels = (labels[:, None] == labels[None, :]).astype(jnp.float32)
+    # # generate mask
+    # labels = jnp.concatenate([jnp.arange(B) for _ in range(2)], axis=0)
+    n_process = jax.process_count()
+    B_ = B // n_process # batch size per process
+    labels_per_process = jnp.concatenate([jnp.arange(B_) for _ in range(2)], axis=0)
+    labels_all = labels_per_process.reshape(1, 2*B_).repeat(n_process, axis=0)
+    labels_all = labels_all + jnp.arange(n_process).reshape(-1, 1) * 2 * B_
+    labels_ = labels_all.reshape(-1)
+    labels = (labels_[:, None] == labels_[None, :]).astype(jnp.float32)
     # mask = jnp.eye(2 * B, dtype=jnp.float32)
     # assert False, f"labels shape: {labels.shape}, mask shape: {mask.shape}"
     # mask_indices = jnp.where(~mask)
@@ -172,7 +185,7 @@ def NTXent(features, temperature=0.1):
     # labels = labels[~mask].reshape(2 * B, 2 * B - 1)
     labels = labels - jnp.eye(2 * B, dtype=jnp.float32)
     # compute similarity matrix
-    features = features / jnp.linalg.norm(features, axis=1, keepdims=True)
+    # features = features / jnp.linalg.norm(features, axis=-1, keepdims=True)
     similarity_matrix = jnp.dot(features, features.T)
     assert similarity_matrix.shape == (2 * B, 2 * B)
     # similarity_matrix = similarity_matrix[~mask].reshape(2 * B, 2 * B - 1)
@@ -210,7 +223,8 @@ def NTXent(features, temperature=0.1):
     d = {}
     # d["features"] = features
     # d["similarity_matrix"] = similarity_matrix
-    # # d["labels"] = labels
+    # d["labels"] = labels
+    # d["labels_"] = labels_
     # # d["correct_label"] = correct_label
     # d["logits"] = logits
     # d["logsumexp"] = nn.logsumexp(logits, axis=1)
@@ -237,14 +251,21 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
             rngs=dict(dropout=rng_dropout),
         )
         # gather all features
-        features = lax.all_gather(features, axis_name="batch")
+        features = features / jnp.linalg.norm(features, axis=-1, keepdims=True) # normalize features
+        all_features = lax.all_gather(features, axis_name="batch")
+        # all_features = lax.stop_gradient(all_features)
+        # rank = lax.axis_index(axis_name="batch")
+        # all_features = all_features.at[rank].set(features) # keep the gradient of features on this device
         # assert False, f"features shape: {features.shape}, images shape: {images.shape}" # feature: (8, 2b_2, c), images: (2b_2, 224, 224, 3)
-        loss, acc, d = NTXent(features, temperature=config.training.temperature)
+        loss, acc, d = NTXent(all_features, temperature=config.training.temperature)
         # loss = cross_entropy_loss(logits, batch["label"], num_classes)
         # weight_penalty_params = jax.tree_util.tree_leaves(params)
         # weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
         # weight_penalty = weight_decay * 0.5 * weight_l2
         # loss = loss + weight_penalty
+        # loss = 0.1
+        # acc = 0.1
+        # d = {"rank": rank}
         return loss, (new_model_state, acc, d)
 
     # compute gradients
@@ -380,8 +401,9 @@ def sync_batch_stats(state):
 
 def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> TrainState:
     # # test
-    # features = jnp.ones((8, 2, 64))
-    # NTXent(features, temperature=0.1)
+    # print("process count: ", jax.process_count(), flush=True) # 4
+    # print("process index: ", jax.process_index(), flush=True)
+    # exit("邓")
     ######################################################################
     #                       Initialize training                          #
     ######################################################################
@@ -534,22 +556,30 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             batch = prepare_batch_data(batch)
 
             # # sanity check
-            # def tang(i): return i
+
+            # # Uncomment this
+            # def tang(i): 
+            #     i = lax.all_gather(i, axis_name="batch")
+            #     return i
             # p_tang = jax.pmap(tang, axis_name="batch")
             # images = batch["image"]
-            # print(f"images.shape: {images.shape}")
+            # # print(f"images.shape1: {images.shape}") # if run on 32 TPUs, e.g. bs = 352, then images.shape = (8, 22, 224, 224, 3), and each machine has one such images
             # images = p_tang(images)
-            # print(f"images.shape: {images.shape}")
+            # images = images[0]
+            # print(f"images.shape2: {images.shape}")
+            # # exit("邓东灵")
             # images = images.reshape(-1, 224, 224, 3)
             # B = images.shape[0] // 2
+            # # exit("邓东灵")
             # import matplotlib.pyplot as plt
             # import os
-            # path = f"/kmh-nfs-ssd-eu-mount/code/qiao/work/dataset_images_sanity/{n_batch}"
+            # path = f"/kmh-nfs-ssd-eu-mount/staging/sqa/debug-kmh-tpuvm-v3-32-1/total/"
             # if os.path.exists(path) == False: os.makedirs(path)
             # for i in range(2*B):
             #     img = images[i]
-            #     plt.imsave(path+f"/{i}.png", img)
+            #     plt.imsave(path+f"{i}.png", img)
             # exit("邓东灵")
+            # # END
 
             # # print("batch['image'].shape:", batch['image'].shape)
             # # assert False
@@ -597,11 +627,16 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             state, metrics, d = p_train_step(state, batch)
             train_metrics.update(metrics)
 
-            # # debug
-            # for k, v in d.items():
-            #     print(f"{k}: {v.shape}")
-            #     print(f"{jnp.any(jnp.isnan(v))}")
-            #     d[k] = v[rank]
+            # debug
+            for k, v in d.items():
+                print(f"{k}: {v.shape}")
+                v = v[0]
+                print(f"{k}: {v}", flush=True)
+                if k == "labels_":
+                    print(v[0], v[88])
+                # print(f"{jnp.any(jnp.isnan(v))}")
+                # d[k] = v[rank]
+            exit("邓东灵")
             # grad = d["grad"] # a dict
             # def show(d, rank): 
             #     for k, v in d.items():

@@ -10,7 +10,7 @@ USE_FAKE_DATASET=2
 if [[ $USE_FAKE_DATASET == 1 ]]; then
     export USE_DATA_ROOT=$FAKE_DATA_ROOT
 else
-    export USE_DATA_ROOT=/$DATA_ROOT/data/imagenet
+    export USE_DATA_ROOT=/kmh-nfs-ssd-eu-mount/data/imagenet
 fi
 
 echo 'Using data root: '$USE_DATA_ROOT
@@ -20,8 +20,10 @@ source ka.sh
 echo Running at $VM_NAME $ZONE
 
 STAGEDIR=/$DATA_ROOT/staging/$(whoami)/debug-$VM_NAME
+# $w=/kmh-nfs-ssd-eu-mount/code/qiao/work/dataset_images_sanity
 sudo mkdir -p $STAGEDIR
 sudo chmod 777 -R $STAGEDIR
+# sudo chmod 777 -R $w
 echo 'Staging files...'
 sudo rsync -a . $STAGEDIR --exclude=tmp --exclude=.git --exclude=__pycache__ --exclude='*.png' --exclude=wandb
 echo 'staging dir: '$STAGEDIR

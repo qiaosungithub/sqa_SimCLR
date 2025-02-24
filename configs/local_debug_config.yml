@@ -1,9 +1,10 @@
 # Put your `debug.sh` configs in this YAML file
 training:
     optimizer: LARS
-    learning_rate: 0.3 # base lr
+    learning_rate: 0.075 # base lr
     num_epochs: 100
     warmup_epochs: 10
+    lr_scaling: sqrt
     batch_size: 256
     log_per_step: 1
     wandb: False

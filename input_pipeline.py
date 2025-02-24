@@ -50,9 +50,10 @@ def prepare_batch_data(batch, batch_size=None):
     # print(f"image1 shape: {image[1].shape}")
     # print(f"label shape: {label.shape}") # (bs,)
     # exit("东灵")
-    if isinstance(image, list):
-        assert len(image) == 2
+    if isinstance(image, list): # training
+        assert len(image) == 2 # [[1, 2, 3, 4], [1', 2', 3', 4']]
         image = torch.cat(image, axis=0)
+        # image = torch.stack(image, axis=0).transpose(0, 1).reshape(-1, 3, IMAGE_SIZE, IMAGE_SIZE)
         assert batch_size is None, NotImplementedError
 
         label = torch.cat([label, label], axis=0)
