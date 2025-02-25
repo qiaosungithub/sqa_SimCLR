@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 from models import models_resnet
+from models.models_tf import tf_linear, tf_batch_norm
 
 class SimCLR(nn.Module):
     
@@ -14,9 +15,14 @@ class SimCLR(nn.Module):
         encoder_model = getattr(models_resnet, self.net_type)
         self.encoder = encoder_model()
         self.projection_head = nn.Sequential([
-            nn.Dense(self.hidden_dim),
+            tf_linear(self.hidden_dim),
+            tf_batch_norm(),
             nn.relu,
-            nn.Dense(self.out_dim)
+            tf_linear(self.hidden_dim),
+            tf_batch_norm(),
+            nn.relu,
+            tf_linear(self.out_dim, use_bias=False),
+            tf_batch_norm(use_bias=False),
         ])
 
     def forward(self, x):
