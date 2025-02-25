@@ -627,16 +627,16 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             state, metrics, d = p_train_step(state, batch)
             train_metrics.update(metrics)
 
-            # debug
-            for k, v in d.items():
-                print(f"{k}: {v.shape}")
-                v = v[0]
-                print(f"{k}: {v}", flush=True)
-                if k == "labels_":
-                    print(v[0], v[88])
-                # print(f"{jnp.any(jnp.isnan(v))}")
-                # d[k] = v[rank]
-            exit("邓东灵")
+            # # debug
+            # for k, v in d.items():
+            #     print(f"{k}: {v.shape}")
+            #     v = v[0]
+            #     print(f"{k}: {v}", flush=True)
+            #     if k == "labels_":
+            #         print(v[0], v[88])
+            #     # print(f"{jnp.any(jnp.isnan(v))}")
+            #     # d[k] = v[rank]
+            # exit("邓东灵")
             # grad = d["grad"] # a dict
             # def show(d, rank): 
             #     for k, v in d.items():
