@@ -17,13 +17,13 @@ from functools import partial
 # from absl import logging
 from flax import jax_utils
 from flax.training import checkpoints, common_utils, train_state
-import jax, ml_collections, optax, wandb, re
+import jax, ml_collections, optax, wandb, re, os
 from jax import lax, random
 import jax.numpy as jnp
 import flax.linen as nn
 
 import input_pipeline
-from input_pipeline import prepare_batch_data
+from input_pipeline import prepare_batch_data, prepare_linear_eval_batch_data
 # import models.models_resnet as models_resnet
 from models.models_simclr import SimCLR
 
@@ -288,27 +288,34 @@ def train_step(state, batch, rng_init, learning_rate_fn, weight_decay, config):
 
 class LinearHead(nn.Module):
     num_classes: int=1000
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
-        x = nn.Dense(self.num_classes, kernel_init=nn.initializers.xavier_uniform())(x)
+        x = nn.Dense(self.num_classes, kernel_init=nn.initializers.zeros_init())(x)
         return x
 
-def init_eval(state, config, hidden_dim):
+def init_eval(state, config, hidden_dim, learning_rate_fn, model):
     """
     Initialize evaluation step.
     """
     # representation function compiled
-    p_representation = jax.pmap(partial(state.apply_fn, method=SimCLR.forward, params={"params":state.params, "batch_stats":state.batch_stats}, mutable=False),
-                         axis_name="batch")
+    p_representation = jax.pmap(
+        partial(
+            model.apply, 
+            variables={"params":state.params, "batch_stats":state.batch_stats},
+            method=model.forward,
+            mutable=False,
+        ),
+        axis_name="batch"
+    )
     # initialize head
     head = LinearHead(num_classes=config.dataset.num_classes)
     params, _ = initialized(random.PRNGKey(0), (1, hidden_dim), head)
     log_for_0(params, logging_fn=print_params)
     # create train state
-    lr = config.evalu.lr * config.training.batch_size / 256.0
     tx = optax.sgd(
-        learning_rate=lr,
+        learning_rate=learning_rate_fn,
         momentum=0.9,
         nesterov=True,
     )
@@ -320,7 +327,7 @@ def init_eval(state, config, hidden_dim):
     )
     return p_representation, head_state
 
-def linear_eval_step(batch, head_state, rng_init, num_classes):
+def linear_eval_step(head_state, batch, rng_init, num_classes):
     """
     train one step for the linear head, with representation in the batch
     """
@@ -361,7 +368,7 @@ def eval_step(state, batch, num_classes):
     Perform a single evaluation step. This function will be pmap, so we can't print inside it.
     """
     variables = {"params": state.params, "batch_stats": state.batch_stats}
-    logits = state.apply_fn(variables, batch["image"], train=False, mutable=False)
+    logits = state.apply_fn(variables, batch["representation"], mutable=False)
     metrics = compute_metrics(logits, batch["label"], num_classes)
     return metrics
 
@@ -745,3 +752,165 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     jax.random.normal(jax.random.key(0), ()).block_until_ready()
 
     return state
+
+def just_evaluate(config: ml_collections.ConfigDict, workdir: str) -> TrainState:
+    ######################################################################
+    #                       Initialize training                          #
+    ######################################################################
+    training_config = config.training
+    if jax.process_index() == 0 and training_config.wandb:
+        wandb.init(project="sqa_simclr_eval", dir=workdir, tags=["linear"])
+        wandb.config.update(config.to_dict())
+        ka = re.search(r"kmh-tpuvm-v[23]-32(-preemptible)?-(\d+)", workdir).group()
+        wandb.config.update({"ka": ka})
+
+    rank = jax.process_index()
+
+    logger = GoodLogger(use_wandb=training_config.wandb)
+
+    rng = random.key(training_config.seed)
+    
+    global_batch_size = training_config.batch_size
+    log_for_0("config.batch_size: {}".format(global_batch_size))
+
+    if global_batch_size % jax.process_count() > 0:
+        raise ValueError("Batch size must be divisible by the number of processes")
+    local_batch_size = global_batch_size // jax.process_count()
+    log_for_0("local_batch_size: {}".format(local_batch_size))
+    log_for_0("jax.local_device_count: {}".format(jax.local_device_count()))
+
+    if local_batch_size % jax.local_device_count() > 0:
+        raise ValueError(
+            "Local batch size must be divisible by the number of local devices"
+        )
+    ######################################################################
+    #                           Create Dataloaders                       #
+    ######################################################################
+    linear_eval_loader, steps_per_linear_eval = input_pipeline.create_split(
+        config.dataset,
+        local_batch_size,
+        split="linear_eval",
+    )
+    eval_loader, steps_per_eval = input_pipeline.create_split(
+        config.dataset,
+        local_batch_size,
+        split="val",
+    )
+
+    log_for_0("steps_per_linear_eval: {}".format(steps_per_linear_eval))
+    log_for_0("steps_per_eval: {}".format(steps_per_eval))
+
+    ######################################################################
+    #                       Create Train State                           #
+    ######################################################################
+
+    lr_scaling = config.training.lr_scaling
+    lr = config.training.learning_rate
+    if lr_scaling == "linear":
+        base_learning_rate = lr * global_batch_size / 256.0
+    elif lr_scaling == "sqrt":
+        base_learning_rate = lr * jnp.sqrt(global_batch_size)
+
+    net_type = config.model.name
+    # get corresponding hidden_dim
+    if net_type == "ResNet50": hidden_dim = 2048
+    elif net_type == "_ResNet1": hidden_dim = 64
+    else: raise NotImplementedError(f"model {net_type} not implemented")
+    model = SimCLR(net_type=net_type, hidden_dim=hidden_dim)
+
+    learning_rate_fn = lambda x: base_learning_rate # const lr
+
+    state = create_train_state(
+        rng, config, model, config.dataset.image_size, learning_rate_fn
+    )
+    assert config.load_from is not None
+    assert os.path.exists(config.load_from), "checkpoint not found. You should check GS bucket"
+    log_for_0("Restoring from: {}".format(config.load_from))
+    state = restore_checkpoint(state, config.load_from) # restore checkpoint
+
+    # state = jax_utils.replicate(state)
+
+    p_representation, head_state = init_eval(state, config, hidden_dim, learning_rate_fn, model)
+
+    head_state = jax_utils.replicate(head_state)
+
+    p_linear_eval_step = jax.pmap(
+        partial(linear_eval_step, 
+                rng_init=rng,
+                num_classes=config.dataset.num_classes
+        ),
+        axis_name="batch",
+    )
+    p_eval_step = jax.pmap(
+        partial(eval_step, num_classes=config.dataset.num_classes),
+        axis_name="batch",
+    )
+    log_for_0("Initial compilation, this might take some minutes...")
+
+    ######################################################################
+    #                           Training Loop                            #
+    ######################################################################
+    timer = Timer()
+    for epoch in range(0, training_config.num_epochs):
+        if jax.process_count() > 1:
+            linear_eval_loader.sampler.set_epoch(epoch)
+        log_for_0("epoch {}...".format(epoch))
+
+        # training
+        train_metrics = MyMetrics(reduction="last")
+        for n_batch, batch in enumerate(linear_eval_loader):
+            batch = prepare_linear_eval_batch_data(batch, p_representation)
+
+            head_state, metrics = p_linear_eval_step(head_state, batch)
+            train_metrics.update(metrics)
+
+            if epoch == 0 and n_batch == 0:
+                log_for_0("Initial compilation completed. Reset timer.")
+                timer.reset()
+
+            step = epoch * steps_per_linear_eval + n_batch
+            ep = epoch + n_batch / steps_per_linear_eval
+            if training_config.get("log_per_step"):
+                if (step + 1) % training_config.log_per_step == 0:
+                    # compute and log metrics
+                    summary = train_metrics.compute_and_reset()
+                    summary = {f"train_{k}": v for k, v in summary.items()}
+                    summary["steps_per_second"] = (
+                        training_config.log_per_step / timer.elapse_with_reset()
+                    )
+                    summary.update({"ep": ep, "step": step})
+                    logger.log(step + 1, summary)
+
+        # evaluation
+        if (epoch + 1) % training_config.eval_per_epoch == 0:
+            log_for_0("Eval epoch {}...".format(epoch))
+            # sync batch statistics across replicas
+            # state = sync_batch_stats(state)
+            eval_metrics = MyMetrics(reduction="avg")
+
+            for n_eval_batch, eval_batch in enumerate(eval_loader):
+                eval_batch = prepare_linear_eval_batch_data(eval_batch, p_representation, local_batch_size)
+                metrics = p_eval_step(head_state, eval_batch)
+                eval_metrics.update(metrics)
+
+                if (n_eval_batch + 1) % training_config.log_per_step == 0:
+                    log_for_0("eval: {}/{}".format(n_eval_batch + 1, steps_per_eval))
+
+            # compute and log metrics
+            summary = eval_metrics.compute()
+            summary = {f"eval_{key}": val for key, val in summary.items()}
+            summary.update({"ep": ep, "step": step})
+            logger.log(step + 1, summary)
+
+        # save checkpoint
+        if (
+            (epoch + 1) % training_config.checkpoint_per_epoch == 0
+            or epoch == training_config.num_epochs
+        ):
+            # state = sync_batch_stats(state)
+            save_checkpoint(head_state, workdir)
+
+    # Wait until computations are done before exiting
+    jax.random.normal(jax.random.key(0), ()).block_until_ready()
+
+    return head_state

@@ -96,6 +96,52 @@ def prepare_batch_data(batch, batch_size=None):
 
     return return_dict
 
+def prepare_linear_eval_batch_data(batch, p_representation, batch_size=None):
+    """Reformat a input batch from PyTorch Dataloader.
+
+    Args:
+      batch = (image, label)
+        image: shape (host_batch_size, 3, height, width)
+        label: shape (host_batch_size)
+      batch_size = expected batch_size of this node, for eval's drop_last=False only
+    """
+    image, label = batch
+
+    # pad the batch if smaller than batch_size
+    if batch_size is not None and batch_size > image.shape[0]:
+        image = torch.cat(
+            [
+                image,
+                torch.zeros(
+                    (batch_size - image.shape[0],) + image.shape[1:], dtype=image.dtype
+                ),
+            ],
+            axis=0,
+        )
+        label = torch.cat(
+            [label, -torch.ones((batch_size - label.shape[0],), dtype=label.dtype)],
+            axis=0,
+        )
+
+    # reshape (host_batch_size, 3, height, width) to
+    # (local_devices, device_batch_size, height, width, 3)
+    local_device_count = jax.local_device_count()
+    image = image.permute(0, 2, 3, 1)
+    image = image.reshape((local_device_count, -1) + image.shape[1:])
+    label = label.reshape(local_device_count, -1)
+
+    image = image.numpy()
+    label = label.numpy()
+
+    representation = p_representation(x=image)
+
+    return_dict = {
+        "representation": representation,
+        "label": label,
+    }
+
+    return return_dict
+
 
 def worker_init_fn(worker_id, rank):
     seed = worker_id + rank * 1000
@@ -201,7 +247,7 @@ def create_split(
             persistent_workers=True if dataset_cfg.num_workers > 0 else False,
         )
         steps_per_epoch = len(it)
-    elif split == "eval": # This is for eval acc
+    elif split == "val": # This is for eval acc
         ds = datasets.ImageFolder(
             os.path.join(dataset_cfg.root, "val"),
             transform=transforms.Compose(

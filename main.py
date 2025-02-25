@@ -1,5 +1,4 @@
 import jax
-
 jax.distributed.initialize()
 # Copyright 2024 The Flax Authors.
 #
@@ -25,15 +24,15 @@ import os
 from absl import app
 from absl import flags
 from absl import logging
+import jax
 from ml_collections import config_flags
 
 import train
 from utils import logging_utils
-
+from utils.logging_utils import log_for_0
 logging_utils.supress_checkpt_info()
 
 import warnings
-
 warnings.filterwarnings("ignore")
 
 
@@ -62,13 +61,15 @@ def main(argv):
     logging.info("JAX process: %d / %d", jax.process_index(), jax.process_count())
     logging.info("JAX local devices: %r", jax.local_devices())
     
-    if FLAGS.debug:
-        logging.info("Running in **DEBUG** mode. Disabling JIT compilation.")
+    if FLAGS.config.load_from is not None:
+        train.just_evaluate(FLAGS.config, FLAGS.workdir)
+    elif FLAGS.debug:
+        log_for_0("Running in **DEBUG** mode. Disabling JIT compilation.")
         assert FLAGS.config.training.wandb == False, "Wandb logging should be closed in debug mode."
         with jax.disable_jit():
             train.train_and_evaluate(FLAGS.config, FLAGS.workdir)
     else:
-        logging.info("Running **WITHOUT DEBUG** mode.")
+        log_for_0("Running **WITHOUT DEBUG** mode.")
         train.train_and_evaluate(FLAGS.config, FLAGS.workdir)
 
 

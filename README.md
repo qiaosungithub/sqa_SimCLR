@@ -4,6 +4,9 @@
 - For ResNet50 with ImageNet, 2048
 - For _ResNet1 with ImageNet, 64
 
+Pretrained checkpoints:
+- ResNet 50, 20250225: `/kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250224_200900_f7hn8q_kmh-tpuvm-v3-32-1__b_lr_ep_torchvision_r50_eval/checkpoint_62500`
+
 based on:
 
 # JAX+linen Development Codebase for Image Classification

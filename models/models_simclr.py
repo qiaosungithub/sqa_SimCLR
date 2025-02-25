@@ -21,12 +21,12 @@ class SimCLR(nn.Module):
 
     def forward(self, x):
         """For extracting representation"""
-        x = self.encoder(x)
+        x = self.encoder(x, train=False)
         # x = self.projection_head(x)
         return x
 
     def __call__(self, x):
         """For training"""
-        x = self.encoder(x)
+        x = self.encoder(x, train=True)
         x = self.projection_head(x)
         return x
