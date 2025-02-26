@@ -73,6 +73,7 @@ def get_config():
 
     # wandb
     config.wandb = True
+    config.load_from = None
 
     return config
 

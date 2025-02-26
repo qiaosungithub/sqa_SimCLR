@@ -314,10 +314,11 @@ def init_eval(state, config, hidden_dim, learning_rate_fn, model):
     params, _ = initialized(random.PRNGKey(0), (1, hidden_dim), head)
     log_for_0(params, logging_fn=print_params)
     # create train state
-    tx = optax.sgd(
+    tx = optax.lars(
         learning_rate=learning_rate_fn,
-        momentum=0.9,
-        nesterov=True,
+        # momentum=0.9,
+        # nesterov=True,
+        weight_decay=config.training.weight_decay,
     )
     head_state = TrainState.create(
         apply_fn=head.apply,
