@@ -15,10 +15,10 @@ class SimCLR(nn.Module):
         encoder_model = getattr(models_resnet, self.net_type)
         self.encoder = encoder_model()
         self.projection_head = nn.Sequential([
-            tf_linear(self.hidden_dim),
+            tf_linear(self.hidden_dim, use_bias=False),
             tf_batch_norm(),
             nn.relu,
-            tf_linear(self.hidden_dim),
+            tf_linear(self.hidden_dim, use_bias=False),
             tf_batch_norm(),
             nn.relu,
             tf_linear(self.out_dim, use_bias=False),

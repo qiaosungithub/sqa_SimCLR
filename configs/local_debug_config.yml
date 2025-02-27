@@ -1,45 +1,45 @@
-# # For pretraining
-# training:
-#     optimizer: LARS
-#     learning_rate: 0.075 # base lr
-#     num_epochs: 100
-#     warmup_epochs: 10
-#     lr_scaling: sqrt
-#     batch_size: 256
-#     log_per_step: 1
-#     wandb: False
-#     checkpoint_per_epoch: 1
-#     temperature: 0.5
-#     weight_decay: 0.000001
-#     # load_from: /kmh-nfs-ssd-eu-mount/code/hanhong/MyFile/resnet_jax_nnx/fake_tmp
-# model:
-#     name: _ResNet1
-#     # name: ResNet50
-# evalu:
-#     lr: 0.1 # base lr
-#     ep: 90
-# dataset:
-#     prefetch_factor: 2
-#     num_workers: 64 # NOTE: On V2, if you don't use num_workers=64, sometimes the code will exit unexpectedly
-
-# For linear evaluation
+# For pretraining
 training:
     optimizer: LARS
-    learning_rate: 0.1 # base lr, no warmup
-    num_epochs: 90
-    lr_scaling: linear
+    learning_rate: 0.075 # base lr
+    num_epochs: 100
+    warmup_epochs: 10
+    lr_scaling: sqrt
     batch_size: 256
-    log_per_step: 10
-    checkpoint_per_epoch: 1
-    weight_decay: 0.0
-    eval_per_epoch: 1
+    log_per_step: 1
     wandb: False
+    checkpoint_per_epoch: 1
+    temperature: 0.5
+    weight_decay: 0.000001
+    # load_from: /kmh-nfs-ssd-eu-mount/code/hanhong/MyFile/resnet_jax_nnx/fake_tmp
 model:
     # name: _ResNet1
     name: ResNet50
+evalu:
+    lr: 0.1 # base lr
+    ep: 90
 dataset:
     prefetch_factor: 2
     num_workers: 64 # NOTE: On V2, if you don't use num_workers=64, sometimes the code will exit unexpectedly
-    num_classes: 1000
 
-load_from: /kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250224_200900_f7hn8q_kmh-tpuvm-v3-32-1__b_lr_ep_torchvision_r50_eval/checkpoint_62500
+# # For linear evaluation
+# training:
+#     optimizer: LARS
+#     learning_rate: 0.1 # base lr, no warmup
+#     num_epochs: 90
+#     lr_scaling: linear
+#     batch_size: 256
+#     log_per_step: 10
+#     checkpoint_per_epoch: 1
+#     weight_decay: 0.0
+#     eval_per_epoch: 1
+#     wandb: False
+# model:
+#     # name: _ResNet1
+#     name: ResNet50
+# dataset:
+#     prefetch_factor: 2
+#     num_workers: 64 # NOTE: On V2, if you don't use num_workers=64, sometimes the code will exit unexpectedly
+#     num_classes: 1000
+
+# load_from: /kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250224_200900_f7hn8q_kmh-tpuvm-v3-32-1__b_lr_ep_torchvision_r50_eval/checkpoint_62500

@@ -412,6 +412,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     # print("process count: ", jax.process_count(), flush=True) # 4
     # print("process index: ", jax.process_index(), flush=True)
     # exit("邓")
+    # print(f"{jax.device_count()}", flush=True)
     ######################################################################
     #                       Initialize training                          #
     ######################################################################

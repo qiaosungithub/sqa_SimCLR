@@ -22,9 +22,11 @@ from typing import Any, Callable, Sequence, Tuple
 
 from flax import linen as nn
 import jax.numpy as jnp
+import jax
 
 ModuleDef = Any
 
+aig = [[i for i in range(jax.device_count())]] # axis_index_groups for BN
 
 class ResNetBlock(nn.Module):
     """ResNet block."""
@@ -109,6 +111,7 @@ class ResNet(nn.Module):
             epsilon=1e-5,
             dtype=self.dtype,
             axis_name="batch",
+            axis_index_groups=aig,
         )
 
         x = conv(
