@@ -93,6 +93,26 @@ def create_learning_rate_fn(
 class TrainState(train_state.TrainState):
     batch_stats: Any
 
+def get_no_weight_decay_dict(params):
+    def modify_value_based_on_key(obj):
+        if not isinstance(obj, dict):
+            return obj
+        for k,v in obj.items():
+            if not isinstance(v,dict):
+                if k in {'bias','scale'}: # scale is for batch norm
+                    obj[k] = False
+                else:
+                    obj[k] = True
+        return obj
+    def is_leaf(obj):
+        if not isinstance(obj, dict):
+            return True
+        modify_value_based_on_key(obj)
+        b = isinstance(obj, dict) and all([not isinstance(v, dict) for v in obj.values()])
+        return b
+    u = jax.tree_util.tree_map(lambda x:False,params)
+    modified_tree = jax.tree_util.tree_map(partial(modify_value_based_on_key), u, is_leaf=is_leaf)
+    return modified_tree
 
 def create_train_state(
     rng, config: ml_collections.ConfigDict, model, image_size, learning_rate_fn
@@ -116,9 +136,11 @@ def create_train_state(
             nesterov=True,
         )
     elif config.training.optimizer == "LARS":
+        no_weight_decay_mask = get_no_weight_decay_dict(params)
         tx = optax.lars(
             learning_rate=learning_rate_fn,
             weight_decay=config.training.weight_decay,
+            weight_decay_mask=no_weight_decay_mask,
         )
     else: raise NotImplementedError
     state = TrainState.create(
