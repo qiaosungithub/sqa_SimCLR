@@ -11,6 +11,8 @@ Pretrained checkpoints:
 
 - ResNet 50, 20250228, fixed BN and bias: `/kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250227_225128_fl5x11_kmh-tpuvm-v3-32-preemptible-1__b_lr_ep_torchvision_r50_eval`
 
+- ResNet 50, 20250301, weight decay mask: `/kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250301_004259_wuz8n9_kmh-tpuvm-v3-32-preemptible-1__b_lr_ep_torchvision_r50_eval`
+
 based on:
 
 # JAX+linen Development Codebase for Image Classification
