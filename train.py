@@ -335,12 +335,14 @@ def init_eval(state, config, hidden_dim, learning_rate_fn, model):
     head = LinearHead(num_classes=config.dataset.num_classes)
     params, _ = initialized(random.PRNGKey(0), (1, hidden_dim), head)
     log_for_0(params, logging_fn=print_params)
+    weight_decay_mask = get_no_weight_decay_dict(params)
     # create train state
     tx = optax.lars(
         learning_rate=learning_rate_fn,
         # momentum=0.9,
         # nesterov=True,
         weight_decay=config.training.weight_decay,
+        weight_decay_mask=weight_decay_mask,
     )
     head_state = TrainState.create(
         apply_fn=head.apply,

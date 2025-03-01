@@ -25,7 +25,7 @@ class GaussianBlur(object):
         self.tensor_to_pil = transforms.ToPILImage()
 
     def __call__(self, img):
-        img = self.pil_to_tensor(img).unsqueeze(0)
+        img = self.pil_to_tensor(img).unsqueeze(0) # the transform is performing on a single image
 
         # each time we sample the blur intensity and derive the kernel
         sigma = np.random.uniform(0.1, 2.0)
@@ -53,7 +53,9 @@ def get_simclr_pipeline_transform(size, s=1.0):
                                             transforms.RandomApply([color_jitter], p=0.8),
                                             transforms.RandomGrayscale(p=0.2),
                                             GaussianBlur(kernel_size=int(0.1 * size)),
-                                            transforms.ToTensor()])
+                                            transforms.ToTensor(),
+                                            transforms.Lambda(lambda x: torch.clamp(x, 0.0, 1.0))
+                                        ])
     return data_transforms
 
 class ContrastiveLearningViewGenerator(object):
