@@ -444,7 +444,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
     if jax.process_index() == 0 and training_config.wandb:
         wandb.init(project="sqa_simclr", dir=workdir)
         wandb.config.update(config.to_dict())
-        ka = re.search(r"kmh-tpuvm-v[23]-32(-preemptible)?-(\d+)", workdir).group()
+        ka = re.search(r"kmh-tpuvm-v[234]-(\d+)(-preemptible)?-(\d+)", workdir).group()
         wandb.config.update({"ka": ka})
 
     rank = jax.process_index()
@@ -787,7 +787,7 @@ def just_evaluate(config: ml_collections.ConfigDict, workdir: str) -> TrainState
     if jax.process_index() == 0 and training_config.wandb:
         wandb.init(project="sqa_simclr_eval", dir=workdir, tags=["linear"])
         wandb.config.update(config.to_dict())
-        ka = re.search(r"kmh-tpuvm-v[23]-32(-preemptible)?-(\d+)", workdir).group()
+        ka = re.search(r"kmh-tpuvm-v[234]-(\d+)(-preemptible)?-(\d+)", workdir).group()
         wandb.config.update({"ka": ka})
 
     rank = jax.process_index()

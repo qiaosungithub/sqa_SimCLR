@@ -24,7 +24,7 @@ training:
     learning_rate: 0.1 # base lr, no warmup
     num_epochs: 90
     lr_scaling: linear
-    batch_size: 2048
+    batch_size: 4096
     log_per_step: 20
     checkpoint_per_epoch: 10
     weight_decay: 0.000001
@@ -37,4 +37,4 @@ dataset:
     num_workers: 64 # NOTE: On V2, if you don't use num_workers=64, sometimes the code will exit unexpectedly
     num_classes: 1000
 
-load_from: /kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250301_004259_wuz8n9_kmh-tpuvm-v3-32-preemptible-1__b_lr_ep_torchvision_r50_eval
+load_from: /kmh-nfs-ssd-eu-mount/logs/sqa/sqa_Flow_matching/20250301_004259_wuz8n9_kmh-tpuvm-v3-32-preemptible-1__b_lr_ep_torchvision_r50_eval/checkpoint_62500
