@@ -28,7 +28,8 @@ class SimCLR(nn.Module):
     def forward(self, x):
         """For extracting representation"""
         x = self.encoder(x, train=False)
-        # x = self.projection_head(x)
+        # do normalize
+        x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
         return x
 
     def __call__(self, x):
