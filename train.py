@@ -617,13 +617,12 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             # # print("batch['image'].shape:", batch['image'].shape)
             # # assert False
 
-            # # # here is code for us to visualize the images
+            # # here is code for us to visualize the images
             # import matplotlib.pyplot as plt
             # import numpy as np
             # import os
             # images = batch["image"]
             # print(f"images.shape: {images.shape}", flush=True)
-            # print(f'image max: {jnp.max(images)}, min: {jnp.min(images)}') # here, [0, 1] TODO: whether to transform it into [-1, 1]
 
             # # from input_pipeline import MEAN_RGB, STDDEV_RGB
 
@@ -632,9 +631,9 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
 
             # # if os.path.exists(f"/kmh-nfs-us-mount/staging/sqa/images/{n_batch}/{rank}") == False:
             # #   os.makedirs(f"/kmh-nfs-us-mount/staging/sqa/images/{n_batch}/{rank}")
-            # path = f"/kmh-nfs-ssd-eu-mount/code/qiao/work/dataset_images/{n_batch}/{rank}"
+            # path = f"/kmh-nfs-ssd-eu-mount/code/qiao/work/jax_SD/test_image_64/{n_batch}/{rank}"
             # if os.path.exists(path) == False:
-            #   os.makedirs(path)
+            #     os.makedirs(path)
             # for i in range(images[0].shape[0]):
             #     # print the max and min of the image
             #     # print(f"max: {np.max(images[0][i])}, min: {np.min(images[0][i])}")
@@ -643,18 +642,19 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str) -> Train
             #     # break
             #     # use the max and min to normalize the image to [0, 1]
             #     img = images[0][i]
-            #     # img = img * (jnp.array(STDDEV_RGB)/255.).reshape(1,1,3) + (jnp.array(MEAN_RGB)/255.).reshape(1,1,3)
+            #     # resize the image into 512x512
+            #     img = jax.image.resize(img, (64, 64, 3), method='bilinear')
             #     # img = (img + 1) / 2
             #     # print(f"max: {np.max(img)}, min: {np.min(img)}")
             #     img = jnp.clip(img, 0, 1)
             #     # img = (img - np.min(img)) / (np.max(img) - np.min(img))
             #     # img = img.squeeze(-1)
             #     plt.imsave(path+f"/{i}.png", img) # if MNIST, add cmap='gray'
-            #     if i>20: break
+            #     if i>10: break
 
             # print(f"saving images for n_batch {n_batch}, done.")
             # if n_batch > 0:
-            #   exit(114514)
+            #     exit(114514)
             # continue
 
             state, metrics, d = p_train_step(state, batch)
